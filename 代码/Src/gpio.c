@@ -66,12 +66,11 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : RETEST_Pin */
-  GPIO_InitStruct.Pin = RETEST_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(RETEST_GPIO_Port, &GPIO_InitStruct);
-
+/* PA4 - RETEST */
+GPIO_InitStruct.Pin = RETEST_Pin;
+GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+GPIO_InitStruct.Pull = GPIO_PULLUP;
+HAL_GPIO_Init(RETEST_GPIO_Port, &GPIO_InitStruct);
   /*Configure GPIO pin : STOP_Pin */
   GPIO_InitStruct.Pin = STOP_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
@@ -93,6 +92,9 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  /* RETEST PA4 */
+HAL_NVIC_SetPriority(EXTI4_IRQn, 1, 0);
+HAL_NVIC_EnableIRQ(EXTI4_IRQn);
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 

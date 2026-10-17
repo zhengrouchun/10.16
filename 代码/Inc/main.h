@@ -53,8 +53,6 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-void DivEmergencyStop(void); /* 停止及异常中断调用的双路断电入口。 */
-void DivButtonsTick(void); /* SysTick调用的无阻塞按键采样入口。 */
 
 /* USER CODE END EFP */
 

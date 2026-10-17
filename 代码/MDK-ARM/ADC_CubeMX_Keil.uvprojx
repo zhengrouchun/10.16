@@ -405,6 +405,31 @@
               <FilePath>../Src/OLED.c</FilePath>
             </File>
             <File>
+              <FileName>div_power.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Src/div_power.c</FilePath>
+            </File>
+            <File>
+              <FileName>div_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Src/div_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>div_measurement.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Src/div_measurement.c</FilePath>
+            </File>
+            <File>
+              <FileName>div_display.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Src/div_display.c</FilePath>
+            </File>
+            <File>
+              <FileName>div_diagnosis.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Src/div_diagnosis.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Src/main.c</FilePath>

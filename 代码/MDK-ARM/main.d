@@ -31,7 +31,9 @@
 .\main.o: ../Inc/adc.h
 .\main.o: ../Inc/usart.h
 .\main.o: ../Inc/gpio.h
-.\main.o: D:\Stu15\Documents\Keil stm32\code\ARM\ARMCC\Bin\..\include\stdio.h
-.\main.o: D:\Stu15\Documents\Keil stm32\code\ARM\ARMCC\Bin\..\include\string.h
+.\main.o: ../Inc/div_config.h
+.\main.o: ../Inc/div_power.h
+.\main.o: ../Inc/div_control.h
+.\main.o: ../Inc/div_display.h
+.\main.o: ../Inc/div_app_types.h
 .\main.o: ../Inc/oled_display.h
-.\main.o: ../Inc/div_diagnosis.h
