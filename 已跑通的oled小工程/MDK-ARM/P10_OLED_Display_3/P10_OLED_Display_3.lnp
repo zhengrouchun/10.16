@@ -1,0 +1,25 @@
+--cpu Cortex-M3
+"p10_oled_display_3\startup_stm32f103xb.o"
+"p10_oled_display_3\main.o"
+"p10_oled_display_3\gpio.o"
+"p10_oled_display_3\stm32f1xx_it.o"
+"p10_oled_display_3\stm32f1xx_hal_msp.o"
+"p10_oled_display_3\stm32f1xx_hal_gpio_ex.o"
+"p10_oled_display_3\stm32f1xx_hal_tim.o"
+"p10_oled_display_3\stm32f1xx_hal_tim_ex.o"
+"p10_oled_display_3\stm32f1xx_hal.o"
+"p10_oled_display_3\stm32f1xx_hal_rcc.o"
+"p10_oled_display_3\stm32f1xx_hal_rcc_ex.o"
+"p10_oled_display_3\stm32f1xx_hal_gpio.o"
+"p10_oled_display_3\stm32f1xx_hal_dma.o"
+"p10_oled_display_3\stm32f1xx_hal_cortex.o"
+"p10_oled_display_3\stm32f1xx_hal_pwr.o"
+"p10_oled_display_3\stm32f1xx_hal_flash.o"
+"p10_oled_display_3\stm32f1xx_hal_flash_ex.o"
+"p10_oled_display_3\stm32f1xx_hal_exti.o"
+"p10_oled_display_3\system_stm32f1xx.o"
+"p10_oled_display_3\oled.o"
+--strict --scatter "P10_OLED_Display_3\P10_OLED_Display_3.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "P10_OLED_Display_3.map" -o P10_OLED_Display_3\P10_OLED_Display_3.axf
