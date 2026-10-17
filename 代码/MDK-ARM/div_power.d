@@ -32,3 +32,4 @@
 .\div_power.o: ../Inc/div_power.h
 .\div_power.o: ../Inc/div_display.h
 .\div_power.o: ../Inc/div_app_types.h
+.\div_power.o: ../Inc/div_control.h

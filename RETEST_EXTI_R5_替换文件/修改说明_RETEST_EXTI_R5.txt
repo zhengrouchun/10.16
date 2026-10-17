@@ -1,0 +1,32 @@
+﻿STM32F103 RETEST EXTI4 修复版 R5
+
+【这次确认的根因】
+1. 当前源码的 PA4 已经配置为 EXTI4，EXTI4_IRQHandler() 也存在，但 HAL_GPIO_EXTI_Callback() 只处理 STOP(PA5)，完全忽略 RETEST(PA4)。因此 PA4 中断触发后，业务层没有收到复测事件。
+2. SysTick 仍同时调用旧的 DivButtonsTick() 软件消抖，形成“EXTI + SysTick”两套 RETEST 触发机制并存。R5 删除 SysTick 的 RETEST 扫描，只保留 EXTI4。
+3. ADC_CubeMX_Keil.ioc 仍把 PA4 保存为普通 GPIO_Input，和手工修改后的 gpio.c 不一致。R5 已同步为 GPXTI4 + Falling Edge + Pull-up，并启用 EXTI4_IRQn。
+4. 上传工程的 Src/main.c 原本少了一个关闭 main() 的右花括号。你最新的 Keil build log 已经明确报 main.c(140) 语法错误，Target not created。也就是说之前即使修改源码，新的 HEX 根本没有生成，Proteus 很可能一直加载旧 HEX。R5 已修复这个括号。
+
+【修改后的工作流程】
+PA4/SW8 按下 -> EXTI4_IRQHandler -> HAL_GPIO_EXTI_IRQHandler(RETEST_Pin) -> HAL_GPIO_EXTI_Callback -> DivControl_OnRetestInterrupt() -> retest_event_pending=1 -> 主循环 DivControl_Service() -> RETEST_ACCEPTED -> DETECTION_START -> DivMeasurement_Run() -> PB12 开 1V -> ADC -> 判别 -> OLED 刷新。
+
+PA5/STOP 保持原逻辑：EXTI9_5 -> DivEmergencyStop() -> 立即 PB12/PB13 断电 -> 主循环显示 STOPPED。
+
+【Proteus 接线】
+本修复版使用 MCU 内部上拉：PA4 -> SW8 -> GND。
+因此 RETEST 外部 10k 上拉电阻可以删除。不要在 PA4 上放 LogicState 0/1 这种会主动驱动线路的元件；只能使用被动探针/电压表。
+PA5 也按内部上拉 + 按键接地使用。
+
+【必须做】
+1. 用本包文件覆盖工程对应文件。
+2. Keil 执行 Rebuild All。必须看到 0 Error(s) 并成功生成新的 ADC_CubeMX_Keil.hex。
+3. 检查 HEX 文件修改时间确实是本次编译时间。
+4. Proteus U1 Program File 指向刚生成的新 HEX。
+5. 启动串口应看到 FW=RETEST_EXTI_R5。看不到这个字符串，就仍然是旧 HEX。
+6. 按 SW8 后应出现 RETEST_IRQS=1、EVENT=RETEST_ACCEPTED、EVENT=DETECTION_START。
+
+【1V测试电源说明】
+PB12 只在 DivMeasurement_Run() 的检测窗口内拉高，默认保持 1500 ms，然后程序采样并根据结果关闭测试电源/切换运行电源。因此在 HEARTBEAT 阶段测到 PB12=0V 不代表失败。
+若为了观察电压表，可临时把 Inc/div_config.h 中 TEST_POWER_OBSERVATION_MILLISECONDS 从 1500 改成 10000，确认后再改回1500。
+
+【未改业务逻辑】
+没有修改 ADC 采样方式、DivClassify 故障判别、OLED 显示业务、SelectPower/DivPower_Select 供电互锁、STOP 的紧急断电逻辑。

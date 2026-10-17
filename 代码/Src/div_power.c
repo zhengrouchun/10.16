@@ -3,6 +3,7 @@
 #include "div_config.h"
 #include "div_power.h"
 #include "div_display.h"
+#include "div_control.h" /* RETEST EXTI4只把事件交给控制模块。 */
 static volatile int power_gpio_ready = 0; /* GPIO未就绪前禁止写输出。 */
 static volatile int stop_requested = 0; /* 锁存停止中断和紧急停机状态。 */
 void DivPower_Initialize(void) /* GPIO初始化后进入双路断电状态。 */
@@ -30,11 +31,15 @@ void DivEmergencyStop(void) /* 停止中断和故障处理共用紧急断电路�
     DivDisplay_RequestRefresh(); /* 请求主循环更新STOPPED画面。 */
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t pin) /* HAL 在处理停止按钮的下降沿中断后调用此函数。 */
+void HAL_GPIO_EXTI_Callback(uint16_t pin) /* PA5负责紧急停止，PA4负责请求复测。 */
 {
-    if (pin == STOP_BUTTON_PIN) /* 只处理本工程接在 PA5 的停止按钮。 */
+    if (pin == STOP_BUTTON_PIN) /* STOP必须最高优先级，按下立即断电。 */
     {
-        DivEmergencyStop(); /* 按下时立即断电，主循环随后发送停止事件。 */
+        DivEmergencyStop();
+    }
+    else if (pin == RETEST_BUTTON_PIN) /* RETEST只锁存事件，绝不在中断里做ADC/OLED/串口。 */
+    {
+        DivControl_OnRetestInterrupt();
     }
 }
 

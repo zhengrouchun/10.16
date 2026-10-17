@@ -1,0 +1,44 @@
+RETEST_UART_R6 修改说明
+======================
+
+基于 10.15--main(2).zip 当前工程，只修改以下文件：
+1) Src/div_control.c
+2) Src/div_display.c
+3) Src/usart.c
+4) Src/main.c
+5) Inc/div_config.h
+
+没有修改：ADC采样、故障分类、STOP紧急断电、电源互锁、OLED业务显示逻辑、GPIO/EXTI配置。
+
+一、RETEST修复/诊断
+- 删除 EXTI4 回调中“再次读取 PA4 必须仍为 LOW”的过滤条件。
+  原因：既然已经进入 EXTI4，就已经发生过下降沿；二次读取可能因短脉冲/Proteus时序恢复HIGH而误丢事件。
+- 新增 RAW_IRQ 原始计数：每进入一次 EXTI4 回调立刻+1。
+- ACCEPT 表示通过 STOP 检查与20ms重复中断过滤后，真正交给主循环的次数。
+- 新日志格式：
+  EV=... PA4=... PA5=... RAW_IRQ=... ACCEPT=... FW=RETEST_UART_R6
+
+判断：
+- 按SW8后 RAW_IRQ 仍为0：问题在 PA4物理电平/EXTI4/Proteus接线，不在后面的业务代码。
+- RAW_IRQ增加而 ACCEPT不增加：软件过滤条件导致。
+- ACCEPT增加：应继续看到 RETEST_ACCEPTED -> DETECTION_START。
+
+二、串口优化
+- USART1：9600 -> 115200。
+- UART超时：1000ms -> 200ms。
+- 主循环 MAIN_LOOP_ALIVE：1秒一次 -> 5秒一次，避免与HEARTBEAT重复刷屏。
+- HEARTBEAT保留1秒一次，但缩短字段。
+- 默认关闭 OLED_WRITE_PAGE=... 进度日志，减少OLED每次刷新时4次阻塞串口发送。
+- 1V测试稳定等待：1500ms -> 500ms。若人工观察电压表，可临时改回1500或5000。
+
+三、Proteus必须同步
+Virtual Terminal 的 Baud Rate 必须从 9600 改成 115200，否则会乱码/无法正常显示。
+
+四、预期启动标记
+FW=RETEST_UART_R6 ... BAUD=115200
+
+五、建议测试
+1. 启动时SW8松开：PA4应HIGH。
+2. 按SW8：先看 RAW_IRQ 是否从0变1。
+3. 若 RAW_IRQ=1，应看到 EV=RETEST_ACCEPTED 和 EV=DETECTION_START。
+4. STOP仍应立即断电并显示STOPPED。

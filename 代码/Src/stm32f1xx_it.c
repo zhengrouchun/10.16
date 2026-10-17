@@ -23,7 +23,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "div_power.h" /* 异常中断调用电源模块紧急断电。 */
-#include "div_control.h" /* SysTick调用按键模块采样。 */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -194,7 +193,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
-  DivButtonsTick(); /* 每毫秒采样PA4，屏幕和串口阻塞时也能保存复测事件。 */
+  /* RETEST 已由 PA4/EXTI4 下降沿中断处理，不再在 SysTick 中重复采样。 */
 
   /* USER CODE END SysTick_IRQn 1 */
 }

@@ -59,6 +59,7 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define RETEST_Pin GPIO_PIN_4
 #define RETEST_GPIO_Port GPIOA
+#define RETEST_EXTI_IRQn EXTI4_IRQn
 #define STOP_Pin GPIO_PIN_5
 #define STOP_GPIO_Port GPIOA
 #define STOP_EXTI_IRQn EXTI9_5_IRQn

@@ -31,9 +31,13 @@ void DivDisplay_SetMeasurement(const DivMeasurement *measurement) /* 接收检�
     display_dirty = 1; /* 通知主循环刷新显示。 */
 }
 
-void DivDisplay_Initialize(void) /* 初始化已有OLED驱动并注册进度回调。 */
+void DivDisplay_Initialize(void) /* 初始化已有OLED驱动。 */
 {
-    Oled_SetProgressCallback(DivDisplay_ReportProgress); /* 在每次屏幕写入后报告实际页进度。 */
+#if OLED_PROGRESS_TRACE_ENABLE
+    Oled_SetProgressCallback(DivDisplay_ReportProgress); /* 仅调试OLED时输出页进度。 */
+#else
+    Oled_SetProgressCallback(NULL); /* 正常运行关闭页级串口日志，避免4次阻塞发送拖慢主循环。 */
+#endif
     Oled_Init(); /* 调用现有驱动初始化OLED。 */
 }
 
@@ -67,13 +71,11 @@ void DivDisplay_ServiceStatus(void) /* 每秒发送一次存活与总线状态�
     }
 #if OLED_DISPLAY_ENABLE /* 显示启用时报告参考驱动的初始化状态。 */
     written = snprintf(line, sizeof(line), /* 报告测量、控制脚及参考驱动初始化状态。 */
-        "HEARTBEAT_MS=%lu STATE=%s RUN_GPIO=%s TEST_GPIO=%s OLED_INIT=%s ACK=UNCHECKED SCL=%s SDA=%s RESULT=LAST_TEST\r\n", /* 明确心跳引用上次测量，不代表刚重新采样；参考驱动仍未检查 ACK。 */
+        "HB=%lu STATE=%s RUN=%s TEST=%s OLED=%s\r\n", /* 心跳只保留验收所需字段，减少串口阻塞。 */
         (unsigned long)now_ms, measured_state, /* 显示运行时间和最近一次真实测量的工况。 */
         HAL_GPIO_ReadPin(GPIOB, RUN_POWER_PIN) == GPIO_PIN_SET ? "HIGH" : "LOW", /* 回读 PB13 控制电平。 */
         HAL_GPIO_ReadPin(GPIOB, TEST_POWER_PIN) == GPIO_PIN_SET ? "HIGH" : "LOW", /* 回读 PB12 控制电平。 */
-        Oled_IsInitialized() ? "DONE" : "PENDING", /* 仅表示初始化函数是否执行。 */
-        HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6) == GPIO_PIN_SET ? "HIGH" : "LOW", /* 读取软件 I2C 时钟线的当前电平。 */
-        HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET ? "HIGH" : "LOW"); /* 读取软件 I2C 数据线的当前电平。 */
+        Oled_IsInitialized() ? "DONE" : "PENDING"); /* 仅表示初始化函数是否执行。 */
 #else /* 显示已按构建选项关闭：明确写成DISPLAY_OFF，不把关闭误报成OLED通信故障。 */
     written = snprintf(line, sizeof(line), /* 只报告存活、上次工况、两路控制脚和自动采样周期。 */
         "HEARTBEAT_MS=%lu STATE=%s RUN_GPIO=%s TEST_GPIO=%s OLED=DISPLAY_OFF AUTO_MEASURE_MS=%d\r\n", /* 电压数据由每秒的STATE行给出。 */

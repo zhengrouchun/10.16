@@ -98,7 +98,7 @@ int main(void)
 DivPower_Initialize(); /* GPIO初始化后确保两路电源均关闭。 */
 HAL_Delay(TERMINAL_STARTUP_WAIT_MILLISECONDS); /* 等待虚拟终端进入接收状态。 */
 {
-    const char startup[] = "FW=BUTTON_FIX_R4 OLED_MODE=TEXT4X16 ACK=UNCHECKED MODE=ON_DEMAND VREF_MV=3300 ADC_BITS=12 BAUD=9600\r\n"; /* 标记固件版本并保留原启动字段。 */
+    const char startup[] = "FW=RETEST_UART_R6 OLED_MODE=TEXT4X16 ACK=UNCHECKED MODE=ON_DEMAND VREF_MV=3300 ADC_BITS=12 BAUD=115200\r\n"; /* 标记固件版本并保留原启动字段。 */
     if (HAL_UART_Transmit(&huart1, (uint8_t *)startup, sizeof(startup) - 1, UART_TIMEOUT_MILLISECONDS) != HAL_OK) /* 发送启动状态。 */
     {
         Error_Handler(); /* 串口启动失败时进入断电停机。 */
@@ -110,7 +110,7 @@ if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK) /* 在测量前校准ADC。 *
     HAL_UART_Transmit(&huart1, (uint8_t *)calibration_error, sizeof(calibration_error) - 1, UART_TIMEOUT_MILLISECONDS); /* 尽力输出校准故障。 */
     Error_Handler(); /* 校准失败时禁止继续检测。 */
 }
-DivControl_InitializeButtons(); /* 初始化按键状态并开放SysTick采样。 */
+DivControl_InitializeButtons(); /* 初始化RETEST外部中断事件状态。 */
 DivControl_Trace("OLED_INIT_BEGIN"); /* 记录OLED初始化前的控制状态。 */
 DivDisplay_Initialize(); /* 初始化现有OLED驱动并注册进度回调。 */
 DivControl_Trace("OLED_INIT_END"); /* 记录OLED初始化函数已返回。 */
@@ -128,7 +128,8 @@ DivControl_Service(); /* 处理停止、复测及ADC检测调度。 */
 DivDisplay_Service(); /* 刷新最近一次测量结果。 */
 DivDisplay_ServiceStatus(); /* 定时输出主循环和I2C状态。 */
 #endif /* 结束OLED服务条件编译。 */
-HAL_Delay(CONTROL_POLL_MILLISECONDS); /* 控制轮询节拍，SysTick继续采样按键。 */
+HAL_Delay(CONTROL_POLL_MILLISECONDS); /* 控制轮询节拍；RETEST由EXTI4产生事件。 */
+  }
   /* USER CODE END 3 */
 }
 

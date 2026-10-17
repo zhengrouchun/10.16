@@ -30,4 +30,3 @@
 .\stm32f1xx_it.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h
 .\stm32f1xx_it.o: ../Inc/stm32f1xx_it.h
 .\stm32f1xx_it.o: ../Inc/div_power.h
-.\stm32f1xx_it.o: ../Inc/div_control.h

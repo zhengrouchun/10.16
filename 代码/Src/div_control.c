@@ -24,7 +24,10 @@ static volatile int retest_armed = 1; /* 复测事件布防状态。 */
 static volatile uint32_t button_scan_count = 0; /* 累计按键扫描次数。 */
 static volatile uint32_t retest_low_count = 0; /* 累计PA4低电平采样次数。 */
 static volatile uint32_t retest_longest_low_ms = 0; /* 最长连续按下时长。 */
-static volatile uint32_t retest_press_count = 0; /* 累计有效复测次数。 */
+static volatile uint32_t retest_press_count = 0; /* 累计通过软件条件并交付主循环的复测次数。 */
+static volatile uint32_t retest_raw_irq_count = 0; /* EXTI4原始进入次数：用于区分“没触发中断”和“中断后被软件过滤”。 */
+static volatile uint32_t last_retest_irq_ms = 0; /* 上一次接受的RETEST下降沿时刻。 */
+static volatile uint8_t retest_irq_seen = 0; /* 0=尚未接受过下降沿，允许第一次立即触发。 */
 static volatile uint16_t retest_low_streak = 0; /* 连续低电平样本数。 */
 static volatile uint16_t retest_high_streak = 0; /* 连续高电平样本数。 */
 static volatile uint8_t retest_seen_released = 0; /* 启动后是否确认过释放。 */
@@ -32,90 +35,57 @@ static volatile uint8_t retest_latched_press = 0; /* 防止长按重复触发。
 #if AUTO_MEASURE_INTERVAL_MILLISECONDS > 0 /* 自动复测启用时才需要记录时间。 */
 static uint32_t last_auto_measure_ms = 0; /* 最近一次自动检测完成时刻。 */
 #endif /* 结束按需复测模式的条件编译。 */
-void DivControl_InitializeButtons(void) /* ADC校准后初始化按钮并启动SysTick采样。 */
+void DivControl_InitializeButtons(void) /* 初始化RETEST外部中断事件状态。 */
 {
-    retest_button.raw_level = HAL_GPIO_ReadPin(GPIOA, RETEST_BUTTON_PIN); /* 上电按住不产生虚假的按下沿。 */
-    retest_button.stable_level = retest_button.raw_level; /* 记录初始稳定电平。 */
-    retest_button.changed_ms = HAL_GetTick(); /* 记录消抖起始时间。 */
-    retest_seen_released = 0; /* 先连续观察到释放才重新布防。 */
-    retest_low_streak = 0; /* 清空低电平计数。 */
-    retest_high_streak = 0; /* 清空高电平计数。 */
-    buttons_ready = 1; /* 允许SysTick执行按键扫描。 */
+    retest_button.raw_level = HAL_GPIO_ReadPin(GPIOA, RETEST_BUTTON_PIN); /* 仅用于诊断显示当前PA4电平。 */
+    retest_button.stable_level = retest_button.raw_level; /* 保持诊断字段与当前输入一致。 */
+    retest_button.changed_ms = HAL_GetTick(); /* 保存初始化时刻。 */
+    retest_event_pending = 0; /* 启动时没有待处理复测事件。 */
+    retest_press_count = 0; /* 清零本次启动以来的有效复测次数。 */
+    retest_raw_irq_count = 0; /* 清零EXTI4原始中断计数。 */
+    last_retest_irq_ms = 0; /* 清零下降沿消抖基准。 */
+    retest_irq_seen = 0; /* 第一次有效下降沿不受时间差限制。 */
+    retest_armed = 1; /* 诊断字段：当前允许接收复测。 */
+    buttons_ready = 1; /* 从此允许EXTI4回调锁存RETEST事件。 */
 }
-void DivButtonsTick(void) /* SysTick每毫秒采样按键，只更新状态，不发送数据。 */
+
+void DivControl_OnRetestInterrupt(void) /* PA4下降沿中断入口：只锁存事件，不做ADC/OLED/串口。 */
 {
-    GPIO_PinState current_level; /* 保存本次PA4原始电平。 */
-    GPIO_PinState stop_level; /* 保存本次PA5停止电平。 */
-    uint32_t now_ms; /* 保存本次采样时刻。 */
+    uint32_t now_ms;
 
-    if (!buttons_ready) /* 按键初态尚未初始化时不读取输入。 */
+    ++retest_raw_irq_count; /* 一进入EXTI4回调就计数，不受后续软件条件影响。 */
+
+    if (!buttons_ready) /* 初始化尚未完成时忽略业务事件，但原始IRQ计数仍保留。 */
     {
-        return; /* 等待主程序开放按键扫描。 */
+        return;
     }
 
-    current_level = HAL_GPIO_ReadPin(GPIOA, RETEST_BUTTON_PIN); /* 读取低有效的PA4复测输入。 */
-    stop_level = HAL_GPIO_ReadPin(GPIOA, STOP_BUTTON_PIN); /* 读取低有效的PA5停止输入。 */
-    now_ms = HAL_GetTick(); /* 取得系统毫秒计数。 */
-    ++button_scan_count; /* 记录SysTick按键服务确实执行。 */
-
-    if (current_level != retest_button.raw_level) /* 原始电平变化时重置消抖计时。 */
+    if (HAL_GPIO_ReadPin(GPIOA, STOP_BUTTON_PIN) == GPIO_PIN_RESET) /* STOP物理按住时，停止优先。 */
     {
-        retest_button.raw_level = current_level; /* 保存新的PA4原始电平。 */
-        retest_button.changed_ms = now_ms; /* 将稳定时间起点设为当前时刻。 */
+        return;
     }
 
-    if (current_level == GPIO_PIN_RESET) /* 按下状态按低电平计数。 */
+    /*
+     * 不再在EXTI4回调中再次要求PA4“此刻仍为LOW”。
+     * 进入本函数本身已经证明EXTI4检测到过下降沿；Proteus/机械按键若脉冲较短，
+     * 再读一次PA4可能已经恢复HIGH，从而把真实下降沿误丢弃。
+     */
+    now_ms = HAL_GetTick();
+    if (retest_irq_seen && (uint32_t)(now_ms - last_retest_irq_ms) < BUTTON_DEBOUNCE_MILLISECONDS) /* 忽略20ms内的重复下降沿。 */
     {
-        uint32_t duration = now_ms - retest_button.changed_ms; /* 计算这次连续低电平持续时间。 */
-        ++retest_low_count; /* 累计PA4低电平采样次数。 */
-        if (duration > retest_longest_low_ms) /* 检查是否刷新最长按住时长。 */
-        {
-            retest_longest_low_ms = duration; /* 保存本次更长的连续按住时长。 */
-        }
-        if (retest_low_streak < BUTTON_DEBOUNCE_MILLISECONDS) /* 消抖计数最多增加到阈值。 */
-        {
-            ++retest_low_streak; /* 累计一个连续低电平样本。 */
-        }
-        retest_high_streak = 0; /* 低电平打断连续释放计数。 */
-    }
-    else /* 松开状态按高电平计数。 */
-    {
-        if (retest_high_streak < BUTTON_DEBOUNCE_MILLISECONDS) /* 释放计数最多增加到阈值。 */
-        {
-            ++retest_high_streak; /* 累计一个连续高电平样本。 */
-        }
-        retest_low_streak = 0; /* 高电平打断连续按下计数。 */
+        return;
     }
 
-    if (stop_level == GPIO_PIN_RESET) /* STOP按下时不接受任何复测事件。 */
-    {
-        retest_event_pending = 0; /* 清除已经排队的复测请求。 */
-        retest_armed = 0; /* 停止期间解除复测布防。 */
-        retest_seen_released = 0; /* 停止后要求重新确认按键释放。 */
-        retest_latched_press = 0; /* 清除旧按压锁存状态。 */
-        return; /* 停止优先，结束本次按键采样。 */
-    }
+    last_retest_irq_ms = now_ms; /* 记录这次被接受的下降沿。 */
+    retest_irq_seen = 1;
+    retest_event_pending = 1; /* 真正的业务仍由主循环DivControl_Service执行。 */
+    ++retest_press_count;
+    retest_armed = 0; /* 仅用于诊断；事件被主循环取走后重新置1。 */
+}
 
-    if (retest_high_streak >= BUTTON_DEBOUNCE_MILLISECONDS) /* 连续释放达到20ms后重新布防。 */
-    {
-        retest_button.stable_level = GPIO_PIN_SET; /* 更新消抖后的稳定电平。 */
-        retest_seen_released = 1; /* 记录这次启动以来已观察到释放。 */
-        retest_armed = 1; /* 允许之后产生新的按下事件。 */
-        retest_latched_press = 0; /* 解除上一次长按锁存。 */
-    }
-
-    if (retest_low_streak >= BUTTON_DEBOUNCE_MILLISECONDS) /* 连续按下达到20ms后确认按键事件。 */
-    {
-        retest_button.stable_level = GPIO_PIN_RESET; /* 更新消抖后的稳定电平。 */
-        if (retest_seen_released && retest_armed && !retest_latched_press) /* 只接受释放后的第一次有效按下。 */
-        {
-            retest_event_pending = 1; /* 将按下事件留给主循环执行。 */
-            ++retest_press_count; /* 累计确认过的复测按下次数。 */
-            retest_armed = 0; /* 本次按下消费掉复测布防状态。 */
-            retest_latched_press = 1; /* 防止持续按住时重复触发。 */
-            retest_seen_released = 0; /* 下次触发前必须再次确认释放。 */
-        }
-    }
+void DivButtonsTick(void) /* 兼容旧接口：RETEST已改由EXTI4触发，不再在SysTick里采样。 */
+{
+    /* intentionally empty */
 }
 
 static int RetestWasPressed(void) /* 主循环原子取走消抖后的按下事件。 */
@@ -125,36 +95,35 @@ static int RetestWasPressed(void) /* 主循环原子取走消抖后的按下事�
     __disable_irq(); /* 防止读取期间被SysTick修改。 */
     pressed = retest_event_pending; /* 读取已经锁存的复测事件。 */
     retest_event_pending = 0; /* 清除事件，防止主循环重复执行。 */
+    if (pressed)
+    {
+        retest_armed = 1; /* EXTI下降沿本身保证下一次按下前必须先释放；这里只恢复诊断状态。 */
+    }
     __set_PRIMASK(saved_mask); /* 恢复原中断状态。 */
     return pressed; /* 返回是否收到复测事件。 */
 }
-void DivControl_Trace(const char *event) /* 通过独立事件行指出复测流程实际到达的位置。 */
+void DivControl_Trace(const char *event) /* 输出当前RETEST/STOP、电源控制相关的调试快照。 */
 {
-    static char line[BUTTON_TRACE_BUFFER_SIZE]; /* 使用静态缓冲，容纳按键诊断字段并避免增加调用栈。 */
-    uint32_t input_snapshot = GPIOA->IDR; /* 直接保存 GPIOA 输入寄存器，用于和外部电压及 HAL 读数对照。 */
-    uint32_t config_snapshot = GPIOA->CRL; /* 保存 PA0 至 PA7 的实际配置，检查 PA4 是否被其他初始化覆盖。 */
-    uint32_t retest_config = (config_snapshot & (GPIO_CRL_MODE4 | GPIO_CRL_CNF4)) >> GPIO_CRL_MODE4_Pos; /* 提取 PA4 的四位配置；使用芯片头文件提供的位名，避免硬写移位值。 */
-    uint32_t stop_config = (config_snapshot & (GPIO_CRL_MODE5 | GPIO_CRL_CNF5)) >> GPIO_CRL_MODE5_Pos; /* 从同一次配置快照中提取 PA5 模式，用于核对 CubeMX 配置是否生效。 */
-    int written = snprintf(line, sizeof(line), /* 将一次输入快照和独立 HAL 读取组成完整诊断记录。 */
-        "EVENT=%s TICK_MS=%lu PA4=%s PA5=%s ARMED=%s PENDING=%s STOP_LATCH=%s GPIOA_IDR=0x%04lX PA4_CFG=0x%lX PA5_CFG=0x%lX HAL_PA4=%s SCANS=%lu PA4_LOW_SAMPLES=%lu PA4_LOW_MAX_MS=%lu PA4_PRESSES=%lu FW=BUTTON_FIX_R4 RAW=%s STABLE=%s SEEN_RELEASE=%u LOW_STREAK=%u HIGH_STREAK=%u\r\n", /* 汇总输入快照和R4按键消抖证据。 */
-        event, (unsigned long)HAL_GetTick(), /* 填入事件名和当前毫秒计时。 */
-        (input_snapshot & RETEST_BUTTON_PIN) != 0 ? "HIGH" : "LOW", /* 用输入快照的 PA4 位报告复测电平，零表示低电平。 */
-        (input_snapshot & STOP_BUTTON_PIN) != 0 ? "HIGH" : "LOW", /* 用同一次快照的 PA5 位报告停止电平。 */
-        retest_armed ? "YES" : "NO", retest_event_pending ? "YES" : "NO", DivPower_StopIsActive() ? "YES" : "NO", /* 填入允许复测、排队事件和停止锁存状态。 */
-        (unsigned long)input_snapshot, (unsigned long)retest_config, (unsigned long)stop_config, /* 输出原始输入值及 PA4、PA5 的实际配置。 */
-        HAL_GPIO_ReadPin(GPIOA, RETEST_BUTTON_PIN) == GPIO_PIN_SET ? "HIGH" : "LOW", /* 独立读取PA4并与寄存器快照对照。 */
-        (unsigned long)button_scan_count, (unsigned long)retest_low_count, /* 输出采样总数和低电平样本数。 */
-        (unsigned long)retest_longest_low_ms, (unsigned long)retest_press_count, /* 输出最长按住时长和有效按下次数。 */
-        retest_button.raw_level == GPIO_PIN_SET ? "HIGH" : "LOW", /* 输出PA4原始采样电平。 */
-        retest_button.stable_level == GPIO_PIN_SET ? "HIGH" : "LOW", /* 输出消抖后的稳定电平。 */
-        (unsigned int)retest_seen_released, (unsigned int)retest_low_streak, (unsigned int)retest_high_streak); /* 输出释放资格和连续采样计数。 */
-    if (written <= 0 || written >= (int)sizeof(line)) /* 拒绝发送格式化失败或被截断的诊断记录。 */
+    static char line[BUTTON_TRACE_BUFFER_SIZE];
+    uint32_t input_snapshot = GPIOA->IDR;
+    int written = snprintf(line, sizeof(line),
+        "EV=%s T=%lu PA4=%s PA5=%s PEND=%s STOP=%s IDR=0x%04lX RAW_IRQ=%lu ACCEPT=%lu FW=RETEST_UART_R6\r\n",
+        event, (unsigned long)HAL_GetTick(),
+        (input_snapshot & RETEST_BUTTON_PIN) ? "HIGH" : "LOW",
+        (input_snapshot & STOP_BUTTON_PIN) ? "HIGH" : "LOW",
+        retest_event_pending ? "YES" : "NO",
+        DivPower_StopIsActive() ? "YES" : "NO",
+        (unsigned long)input_snapshot,
+        (unsigned long)retest_raw_irq_count,
+        (unsigned long)retest_press_count);
+
+    if (written <= 0 || written >= (int)sizeof(line))
     {
-        Error_Handler(); /* 保持原有错误时两路断电的处理方式。 */
+        Error_Handler();
     }
-    if (HAL_UART_Transmit(&huart1, (uint8_t *)line, (uint16_t)written, UART_TIMEOUT_MILLISECONDS) != HAL_OK) /* 只在主循环发送，避免在 SysTick 中阻塞。 */
+    if (HAL_UART_Transmit(&huart1, (uint8_t *)line, (uint16_t)written, UART_TIMEOUT_MILLISECONDS) != HAL_OK)
     {
-        Error_Handler(); /* UART 发送失败时保留故障现场。 */
+        Error_Handler();
     }
 }
 
